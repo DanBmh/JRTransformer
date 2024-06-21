@@ -41,10 +41,11 @@ weight_loss_aux = 1.0
 depth = 4
 num_heads = 8
 d_k = 128
-in_joint_size = 16 * 6
-in_relation_size = 18
-out_joint_size = 30 * 3
-out_relation_size = 30
+in_joint_size = input_length * 6
+in_relation_size = input_length + 2
+tsteps = input_length + output_length
+out_joint_size = tsteps * 3
+out_relation_size = tsteps
 
 def parse_args():
     parser = argparse.ArgumentParser()

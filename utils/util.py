@@ -43,12 +43,12 @@ def relation_loss(target, pred):
     loss = mse_loss.mean()
     return loss
 
-def process_pred(pred_vel, pred_vel_aux):
-	pred_vel_x = pred_vel[:, :, :16]
-	pred_vel_y = pred_vel[:, :, 16:]
+def process_pred(pred_vel, pred_vel_aux, Ti):
+	pred_vel_x = pred_vel[:, :, :Ti]
+	pred_vel_y = pred_vel[:, :, Ti:]
 	pred_vel_aux_x = []
 	pred_vel_aux_y = []
 	for pred_ in pred_vel_aux:
-		pred_vel_aux_x.append(pred_[:, :, :16])
-		pred_vel_aux_y.append(pred_[:, :, 16:])
+		pred_vel_aux_x.append(pred_[:, :, :Ti])
+		pred_vel_aux_y.append(pred_[:, :, Ti:])
 	return pred_vel_x, pred_vel_y, pred_vel_aux_x, pred_vel_aux_y

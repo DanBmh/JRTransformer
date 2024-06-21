@@ -25,7 +25,7 @@ class Tester:
         self.cuda_devices = args.device
 
         # Parameters
-        self.batch_size = args.batch_size
+        self.batch_size = 1
 
         # Defining models
         self.model = JRTransformer(N=args.N, J=args.J, in_joint_size=args.in_joint_size, in_relation_size=args.in_relation_size, 
@@ -35,7 +35,7 @@ class Tester:
         self.rc = args.rc
         dset_test = SoMoFDataset_3dpw_test(dset_path=somof_3dpw_test_data, seq_len=args.input_length+args.output_length, N=args.N, J=args.J)
         sampler_test = SequentialSampler(dset_test)
-        self.test_loader = DataLoader(dset_test, sampler=sampler_test, batch_size=args.batch_size, num_workers=2, drop_last=False, pin_memory=True)
+        self.test_loader = DataLoader(dset_test, sampler=sampler_test, batch_size=self.batch_size, num_workers=2, drop_last=False, pin_memory=True)
         
         edges = [(0, 1), (1, 8), (8, 7), (7, 0),
 			 (0, 2), (2, 4),
@@ -47,7 +47,10 @@ class Tester:
         self.adj = self.adj.unsqueeze(0).unsqueeze(-1)
         self.conn = get_connect(args.N, args.J)
         self.conn = self.conn.unsqueeze(0).unsqueeze(-1)
-
+        self.Tt = args.input_length + args.output_length
+        self.Ti = args.input_length
+        self.To = args.output_length
+        self.J = args.J
 
         self.path = args.model_path
         
@@ -57,8 +60,8 @@ class Tester:
         self.model.load_state_dict(checkpoint['net']) 
         self.model.eval()
 
-        all_mpjpe = np.zeros(5)
-        all_vim = np.zeros(5)
+        all_mpjpe = np.zeros(self.To)
+        all_vim = np.zeros(self.To)
         count = 0
         with torch.no_grad():
             for i, data in enumerate(self.test_loader):
@@ -67,21 +70,20 @@ class Tester:
                 input_total = input_total_original.clone()
 
                 batch_size = input_total.shape[0]
-                T=30
                 input_total[..., [1, 2]] = input_total[..., [2, 1]]
                 input_total[..., [4, 5]] = input_total[..., [5, 4]]
 
                 if self.rc:
-                    camera_vel = input_total[:, 1:30, :, :, 3:].mean(dim=(1, 2, 3)) # B, 3
+                    camera_vel = input_total[:, 1:self.Tt, :, :, 3:].mean(dim=(1, 2, 3)) # B, 3
                     input_total[..., 3:] -= camera_vel[:, None, None, None]
                     input_total[..., :3] = input_total[:, 0:1, :, :, :3] + input_total[..., 3:].cumsum(dim=1)
 
-                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, 30, 6)
+                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, self.Tt, 6)
 				# B, NxJ, T, 6
 
-                input_joint = input_total[:,:, :16]
+                input_joint = input_total[:,:, :self.Ti]
 				
-                pos = input_total[:,:,:16,:3]
+                pos = input_total[:,:,:self.Ti,:3]
                 pos_i = pos.unsqueeze(-3)
                 pos_j = pos.unsqueeze(-4)
                 pos_rel = pos_i - pos_j
@@ -91,9 +93,7 @@ class Tester:
                 input_relation = torch.cat((exp_dis, self.adj.repeat(batch_size, 1, 1, 1), self.conn.repeat(batch_size, 1, 1, 1)), dim=-1)
 
                 pred_vel = self.model.predict(input_joint, input_relation)
-                pred_vel = pred_vel[:, :, 16:]
-
-				
+                pred_vel = pred_vel[:, :, self.Ti:]
                 pred_vel = pred_vel.permute(0, 2, 1, 3)
 
                 if self.rc:
@@ -102,17 +102,20 @@ class Tester:
 				# B, T, NxJ, 3
                 pred_vel[..., [1, 2]] = pred_vel[..., [2, 1]]
 				# Cumsum velocity to position with initial pose.
-                motion_gt = input_total_original[...,:3].view(batch_size, T, -1, 3)
-                motion_pred = (pred_vel.cumsum(dim=1) + motion_gt[:, 15:16])
+                motion_gt = input_total_original[...,:3].view(batch_size, self.Tt, -1, 3)
+                motion_pred = (pred_vel.cumsum(dim=1) + motion_gt[:, self.Ti-1:self.Ti])
 				
 				# Apply denormalization.
                 motion_pred = batch_denormalization(motion_pred.cpu(), para).numpy()               
-                motion_gt = batch_denormalization(motion_gt.cpu(), para).numpy() 
+                motion_gt = batch_denormalization(motion_gt.cpu(), para).numpy()
 
-                metric_MPJPE = batch_MPJPE(motion_gt[:, 16:, :13, :], motion_pred[:, :, :13, :])
+                motion_gt = motion_gt[:, self.Ti:, :self.J, :]
+                motion_pred = motion_pred[:, :, :self.J, :]
+
+                metric_MPJPE = batch_MPJPE(motion_gt, motion_pred)
                 all_mpjpe += metric_MPJPE
 
-                metric_VIM = batch_VIM(motion_gt[:, 16:, :13, :], motion_pred[:, :, :13, :])
+                metric_VIM = batch_VIM(motion_gt, motion_pred)
                 all_vim += metric_VIM
                 
                 count += batch_size

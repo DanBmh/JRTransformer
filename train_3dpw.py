@@ -5,7 +5,7 @@ import random
 import numpy as np
 import torch
 import time
-from dataset.dataset_3dpw import SoMoFDataset_3dpw, batch_denormalization, SoMoFDataset_3dpw_test
+from dataset.dataset_3dpw import SoMoFDataset_3dpw, batch_denormalization
 from model.model import JRTransformer
 from torch.utils.data import DataLoader, SequentialSampler, DataLoader
 from utils.metrics import batch_MPJPE, batch_VIM
@@ -50,11 +50,6 @@ class Trainer:
         self.val_loader = DataLoader(dset_val, sampler=sampler_val, batch_size=args.batch_size, num_workers=2, drop_last=False, pin_memory=True)   
         print("Load Valid set!")
 
-        dset_test = SoMoFDataset_3dpw_test(dset_path=somof_3dpw_test_data, seq_len=args.input_length+args.output_length, N=args.N, J=args.J)
-        sampler_test = SequentialSampler(dset_test)
-        self.test_loader = DataLoader(dset_test, sampler=sampler_test, batch_size=args.batch_size, num_workers=2, drop_last=False, pin_memory=True)
-        print("Load Test set!")
-        
         edges = [(0, 1), (1, 8), (8, 7), (7, 0),
 			 (0, 2), (2, 4),
 			 (1, 3), (3, 5),
@@ -65,6 +60,10 @@ class Trainer:
         self.adj = self.adj.unsqueeze(0).unsqueeze(-1)
         self.conn = get_connect(args.N, args.J)
         self.conn = self.conn.unsqueeze(0).unsqueeze(-1)
+        self.Tt = args.input_length + args.output_length
+        self.Ti = args.input_length
+        self.To = args.output_length
+        self.J = args.J
 
         self.pretrain_path = args.pretrain_path
 
@@ -77,20 +76,19 @@ class Trainer:
         if not os.path.exists(self.log_dir + self.model_dir):
             os.makedirs(self.log_dir + self.model_dir)
 
-    def test(self):
+    def eval(self):
         self.model.eval()
 
         all_mpjpe = np.zeros(5)
         all_vim = np.zeros(5)
         count = 0
         with torch.no_grad():
-            for i, data in enumerate(self.test_loader):
+            for i, data in enumerate(self.val_loader):
                 input_total_original, para = data
                 input_total_original = input_total_original.float().cuda()
                 input_total = input_total_original.clone()
 
                 batch_size = input_total.shape[0]
-                T=30
                 input_total[..., [1, 2]] = input_total[..., [2, 1]]
                 input_total[..., [4, 5]] = input_total[..., [5, 4]]
 
@@ -99,13 +97,13 @@ class Trainer:
                     input_total[..., 3:] -= camera_vel[:, None, None, None]
                     input_total[..., :3] = input_total[:, 0:1, :, :, :3] + input_total[..., 3:].cumsum(dim=1)
 
-                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, 30, 6)
+                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, self.Tt, 6)
 				# B, NxJ, T, 6
 
                
-                input_joint = input_total[:,:, :16]
+                input_joint = input_total[:,:, :self.Ti]
 				
-                pos = input_total[:,:,:16,:3]
+                pos = input_total[:,:,:self.Ti,:3]
                 pos_i = pos.unsqueeze(-3)
                 pos_j = pos.unsqueeze(-4)
                 pos_rel = pos_i - pos_j
@@ -115,7 +113,7 @@ class Trainer:
                 input_relation = torch.cat((exp_dis, self.adj.repeat(batch_size, 1, 1, 1), self.conn.repeat(batch_size, 1, 1, 1)), dim=-1)
 
                 pred_vel = self.model.predict(input_joint, input_relation)
-                pred_vel = pred_vel[:, :, 16:]
+                pred_vel = pred_vel[:, :, self.Ti:]
 
 				
                 pred_vel = pred_vel.permute(0, 2, 1, 3)
@@ -126,17 +124,17 @@ class Trainer:
 
                 pred_vel[..., [1, 2]] = pred_vel[..., [2, 1]]
 				# Cumsum velocity to position with initial pose.
-                motion_gt = input_total_original[...,:3].view(batch_size, T, -1, 3)
-                motion_pred = (pred_vel.cumsum(dim=1) + motion_gt[:, 15:16])
+                motion_gt = input_total_original[...,:3].view(batch_size, self.Tt, -1, 3)
+                motion_pred = (pred_vel.cumsum(dim=1) + motion_gt[:, self.Ti-1:self.Ti])
 				
 				# Apply denormalization.
                 motion_pred = batch_denormalization(motion_pred.cpu(), para).numpy()               
                 motion_gt = batch_denormalization(motion_gt.cpu(), para).numpy() 
 
-                metric_MPJPE = batch_MPJPE(motion_gt[:, 16:, :13, :], motion_pred[:, :, :13, :])
+                metric_MPJPE = batch_MPJPE(motion_gt[:, self.Ti:, :self.J, :], motion_pred[:, :, :self.J, :])
                 all_mpjpe += metric_MPJPE
 
-                metric_VIM = batch_VIM(motion_gt[:, 16:, :13, :], motion_pred[:, :, :13, :])
+                metric_VIM = batch_VIM(motion_gt[:, self.Ti:, :self.J, :], motion_pred[:, :, :self.J, :])
                 all_vim += metric_VIM
                 
                 count += batch_size
@@ -156,6 +154,7 @@ class Trainer:
         losses = []
         start_epoch = 0
         self.best_eval=100
+        self.expt_dir = 'output/'
 
         if self.pretrain_path != '':
             checkpoint = torch.load(self.pretrain_path)  
@@ -176,7 +175,6 @@ class Trainer:
                 input_total[..., [1, 2]] = input_total[..., [2, 1]]
                 input_total[..., [4, 5]] = input_total[..., [5, 4]]
 
-
                 # input_total: normalized poses with the shape [batch_size, T_p+T_f, N, J, D],
                 # 		where T_p=16 stands for past frames, 
                 # 			  T_f=14 stands for future frames,
@@ -187,18 +185,18 @@ class Trainer:
                 batch_size = input_total.shape[0]
 
                 if self.rc:
-                    camera_vel = input_total[:, 1:30, :, :, 3:].mean(dim=(1, 2, 3)) # B, 3
+                    camera_vel = input_total[:, 1:self.Tt, :, :, 3:].mean(dim=(1, 2, 3)) # B, 3
                     input_total[..., 3:] -= camera_vel[:, None, None, None]
                     input_total[..., :3] = input_total[:, 0:1, :, :, :3] + input_total[..., 3:].cumsum(dim=1)
 
-                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, 30, 6)
+                input_total = input_total.permute(0, 2, 3, 1, 4).contiguous().view(batch_size, -1, self.Tt, 6)
                 # B, NxJ, T, 6
                 angle = random.random()*360
                 # random rotation
                 input_total = rotate_Y(input_total, angle)
                 input_total *= (random.random()*0.4+0.8)
 
-                input_joint = input_total[:,:, :16]
+                input_joint = input_total[:,:, :self.Ti]
 
                 pos = input_total[:,:,:,:3]
                 pos_i = pos.unsqueeze(-3)
@@ -208,30 +206,30 @@ class Trainer:
                 dis = torch.sqrt(dis)
                 exp_dis = torch.exp(-dis)
 
-                exp_dis_in = exp_dis[:, :, :,:16]
-                dis_recon = exp_dis[:,:,:,:16]
-                dis_pred = exp_dis[:,:,:,16:]
+                exp_dis_in = exp_dis[:, :, :,:self.Ti]
+                dis_recon = exp_dis[:,:,:,:self.Ti]
+                dis_pred = exp_dis[:,:,:,self.Ti:]
                 input_relation = torch.cat((exp_dis_in, self.adj.repeat(batch_size, 1, 1, 1), self.conn.repeat(batch_size, 1, 1, 1)), dim=-1)
                 # B, NxJ, T_p, 6
 
                 pred_vel, pred_relation, pred_vel_aux, pred_relation_aux = self.model(input_joint, input_relation)
-                recon_vel, pred_vel, recon_vel_aux, pred_vel_aux = process_pred(pred_vel, pred_vel_aux)
+                recon_vel, pred_vel, recon_vel_aux, pred_vel_aux = process_pred(pred_vel, pred_vel_aux, self.Ti)
 
                 gt_vel = input_total[..., 3:]
                 # [B, NxJ, T=30, 3]
-                gt_vel_x = gt_vel[:, :, :16]
-                gt_vel_y = gt_vel[:, :, 16:]
+                gt_vel_x = gt_vel[:, :, :self.Ti]
+                gt_vel_y = gt_vel[:, :, self.Ti:]
 
                 loss_recon = distance_loss(recon_vel, gt_vel_x)
                 loss_pred = distance_loss(pred_vel, gt_vel_y)
-                loss_relation_recon= relation_loss(pred_relation[..., :16], dis_recon)
-                loss_relation_pred = relation_loss(pred_relation[..., 16:], dis_pred)
+                loss_relation_recon= relation_loss(pred_relation[..., :self.Ti], dis_recon)
+                loss_relation_pred = relation_loss(pred_relation[..., self.Ti:], dis_pred)
                 loss_aux_recon, loss_aux_pred, loss_aux_relation_recon, loss_aux_relation_pred = 0, 0, 0, 0
                 for i_ in range(len(recon_vel_aux)):
                     loss_aux_recon = loss_aux_recon + distance_loss(recon_vel_aux[i_], gt_vel_x)
                     loss_aux_pred  = loss_aux_pred  + distance_loss(pred_vel_aux[i_], gt_vel_y)
-                    loss_aux_relation_recon  = loss_aux_relation_recon + relation_loss(pred_relation_aux[i_][..., :16], dis_recon)
-                    loss_aux_relation_pred  = loss_aux_relation_pred + relation_loss(pred_relation_aux[i_][..., 16:], dis_pred)
+                    loss_aux_relation_recon  = loss_aux_relation_recon + relation_loss(pred_relation_aux[i_][..., :self.Ti], dis_recon)
+                    loss_aux_relation_pred  = loss_aux_relation_pred + relation_loss(pred_relation_aux[i_][..., self.Ti:], dis_pred)
 
                 loss =  loss_pred * self.weight_loss_pred + loss_recon * self.weight_loss_recon + loss_relation_pred * self.weight_loss_pred + loss_relation_recon * self.weight_loss_recon + (loss_aux_recon + loss_aux_pred + loss_aux_relation_pred + loss_aux_relation_recon) * self.weight_loss_aux
 
@@ -259,7 +257,7 @@ class Trainer:
             with open(os.path.join(self.log_dir + self.model_dir, 'log.txt'), 'a+') as log:
                 log.write('Epoch: {}, Train Loss: {},\n'.format(train_iter, np.array(losses).mean()))
                
-            eval = self.test()
+            eval = self.eval()
 
             if eval < self.best_eval:
                 self.best_eval = eval
@@ -268,13 +266,17 @@ class Trainer:
                 checkpoint = {
                         "net": self.model.state_dict(),
                     }
-                torch.save(checkpoint, self.expt_dir + self.model_dir + 'best.pt')    
+                path = self.expt_dir + self.model_dir + 'best.pt'
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                torch.save(checkpoint, path)
             
             if train_iter % 10 == 9:
                 checkpoint = {
                     "net": self.model.state_dict(),
                 }
-                torch.save(checkpoint, self.expt_dir + self.model_dir + 'epoch_{}.pt'.format(train_iter))
+                path = self.expt_dir + self.model_dir + 'epoch_{}.pt'.format(train_iter)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                torch.save(checkpoint, path)
 
 
 
