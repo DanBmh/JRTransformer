@@ -13,6 +13,9 @@ from utils.config_3dpw import *
 from utils.util import rotate_Y, get_adj, get_connect, distance_loss, relation_loss, process_pred
 from datetime import datetime
 
+from dataset.dataset_skelda import SkeldaDataset
+SoMoFDataset_3dpw = SkeldaDataset
+
 class Trainer:
     def __init__(self, args):
         # Set cuda device

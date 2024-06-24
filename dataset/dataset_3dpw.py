@@ -58,6 +58,15 @@ class SoMoFDataset_3dpw(Dataset):
         for i in range(videoNumIn):
             temp_data = np.array(oridata[i])
             temp_data = temp_data.reshape((agentsNum, timeStepsNum, jointsNum, coordsNum))  # [N, T, J, 3]
+
+            # print(temp_data.shape)
+            # print(temp_data[0, 0])
+            # exit()
+
+            # from . import vis_skelda
+            # vis_skelda.visualize(temp_data)
+            # exit()
+
             temp_ = temp_data.copy()
             curr_data, curr_data_para = normalize(temp_data)  
             vel_data = np.zeros((agentsNum, timeStepsNum, jointsNum, coordsNum))
@@ -95,7 +104,7 @@ class SoMoFDataset_3dpw(Dataset):
         return len(self.data)
 
 class SoMoFDataset_3dpw_test(Dataset):
-    def __init__(self, dset_path, seq_len, N, J):
+    def __init__(self, dset_path, seq_len, N, J, split_name='test'):
         self.seq_len = seq_len
 
         oridata = []

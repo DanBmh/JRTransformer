@@ -1,4 +1,5 @@
 import sys
+import time
 sys.path.append(".")
 import os
 import numpy as np
@@ -12,6 +13,10 @@ from utils.metrics import batch_MPJPE, batch_VIM
 from utils.util import get_adj, get_connect
 
 from datetime import datetime
+
+
+from dataset.dataset_skelda import SkeldaDataset
+SoMoFDataset_3dpw_test = SkeldaDataset
 
 class Tester:
     def __init__(self, args):
@@ -33,7 +38,7 @@ class Tester:
                                    num_heads=args.num_heads, depth=args.depth).to(self.device)
         
         self.rc = args.rc
-        dset_test = SoMoFDataset_3dpw_test(dset_path=somof_3dpw_test_data, seq_len=args.input_length+args.output_length, N=args.N, J=args.J)
+        dset_test = SoMoFDataset_3dpw_test(dset_path=somof_3dpw_test_data, seq_len=args.input_length+args.output_length, N=args.N, J=args.J, split_name="test")
         sampler_test = SequentialSampler(dset_test)
         self.test_loader = DataLoader(dset_test, sampler=sampler_test, batch_size=self.batch_size, num_workers=2, drop_last=False, pin_memory=True)
         
@@ -63,6 +68,8 @@ class Tester:
         all_mpjpe = np.zeros(self.To)
         all_vim = np.zeros(self.To)
         count = 0
+        stime = time.time()
+
         with torch.no_grad():
             for i, data in enumerate(self.test_loader):
                 input_total_original, para = data
@@ -109,23 +116,38 @@ class Tester:
                 motion_pred = batch_denormalization(motion_pred.cpu(), para).numpy()               
                 motion_gt = batch_denormalization(motion_gt.cpu(), para).numpy()
 
+                # motion_inp = motion_gt[:, :self.Ti, :self.J, :]
                 motion_gt = motion_gt[:, self.Ti:, :self.J, :]
                 motion_pred = motion_pred[:, :, :self.J, :]
 
-                metric_MPJPE = batch_MPJPE(motion_gt, motion_pred)
+                trange = list(range(self.To))
+                metric_MPJPE = batch_MPJPE(motion_gt, motion_pred, trange)
                 all_mpjpe += metric_MPJPE
 
-                metric_VIM = batch_VIM(motion_gt, motion_pred)
+                metric_VIM = batch_VIM(motion_gt, motion_pred, trange)
                 all_vim += metric_VIM
+
+                # if count % 1000 == 0:
+                #     print(motion_gt.shape)
+                #     print(motion_gt[0, -1])
+                #     print(motion_pred[0, -1])
+                #     print(metric_MPJPE)
+                #     from dataset import vis_skelda
+                #     motion_inp = None
+                #     vis_skelda.visualize(motion_inp, motion_gt, motion_pred)
                 
                 count += batch_size
 
-            all_mpjpe *= 100
-            all_vim *= 100
+            ttime = time.time()-stime
+            print("Total time:", ttime, "FPS:", count/ttime)
+
+            all_mpjpe *= 1000
+            all_vim *= 1000
             all_mpjpe /= count
             all_vim /= count
-            print('Test MPJPE:\t avg: {:.2f} | 100ms: {:.2f} | 240ms: {:.2f} | 500ms: {:.2f} | 640ms: {:.2f} | 900ms: {:.2f}'.format(all_mpjpe.mean(), all_mpjpe[0],  all_mpjpe[1],  all_mpjpe[2],  all_mpjpe[3],  all_mpjpe[4]))
-            print('Test VIM:\t avg: {:.2f} | 100ms: {:.2f} | 240ms: {:.2f} | 500ms: {:.2f} | 640ms: {:.2f} | 900ms: {:.2f}'.format(all_vim.mean(), all_vim[0],  all_vim[1],  all_vim[2],  all_vim[3],  all_vim[4]))    
+            print('Test MPJPE:\t avg: {:.2f}'.format(all_mpjpe.mean()))
+            print(all_mpjpe.astype(float).round(2))
+            print('Test VIM:\t avg: {:.2f}'.format(all_vim.mean())) 
         return all_vim.mean()
 
 if __name__=='__main__':

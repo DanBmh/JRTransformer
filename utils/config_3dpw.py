@@ -11,10 +11,15 @@ skel_path = 'data/smpl_skeleton.npz'
 ## data
 dataset_skip = 2
 strike = 2
-input_length = 16
-output_length = 14
+# input_length = 16
+# output_length = 14
+# num_joint = 13
+# num_person = 2
+
+input_length = 50
+output_length = 25
 num_joint = 13
-num_person = 2
+num_person = 1
 
 ## train & test
 # pretrain 
@@ -32,7 +37,8 @@ gamma = 0.8
 
 cuda_devices = '0'
 pretrain_path = ''
-model_path = 'output/best_3dpw.pt'
+# model_path = 'output/best_3dpw.pt'
+model_path = 'output/h_128_d_4_nh_8_06211228/best.pt'
 weight_loss_pred = 10.0
 weight_loss_recon = 1.0
 weight_loss_aux = 1.0
