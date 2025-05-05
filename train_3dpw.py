@@ -13,6 +13,7 @@ from utils.config_3dpw import *
 from utils.util import rotate_Y, get_adj, get_connect, distance_loss, relation_loss, process_pred
 from datetime import datetime
 
+# Comment this out for a non-skelda test
 from dataset.dataset_skelda import SkeldaDataset
 SoMoFDataset_3dpw = SkeldaDataset
 
@@ -82,7 +83,7 @@ class Trainer:
     def eval(self):
         self.model.eval()
 
-        all_mpjpe = np.zeros(5)
+        all_mpjpe = np.zeros(self.To)
         all_vim = np.zeros(5)
         count = 0
         with torch.no_grad():
@@ -94,6 +95,7 @@ class Trainer:
                 batch_size = input_total.shape[0]
                 input_total[..., [1, 2]] = input_total[..., [2, 1]]
                 input_total[..., [4, 5]] = input_total[..., [5, 4]]
+                # [batch_size, steps_input, npersons, joints, 6]
 
                 if self.rc:
                     camera_vel = input_total[:, 1:30, :, :, 3:].mean(dim=(1, 2, 3)) # B, 3
@@ -134,7 +136,8 @@ class Trainer:
                 motion_pred = batch_denormalization(motion_pred.cpu(), para).numpy()               
                 motion_gt = batch_denormalization(motion_gt.cpu(), para).numpy() 
 
-                metric_MPJPE = batch_MPJPE(motion_gt[:, self.Ti:, :self.J, :], motion_pred[:, :, :self.J, :])
+                trange = list(range(self.To))
+                metric_MPJPE = batch_MPJPE(motion_gt[:, self.Ti:, :self.J, :], motion_pred[:, :, :self.J, :], trange)
                 all_mpjpe += metric_MPJPE
 
                 metric_VIM = batch_VIM(motion_gt[:, self.Ti:, :self.J, :], motion_pred[:, :, :self.J, :])
@@ -142,29 +145,37 @@ class Trainer:
                 
                 count += batch_size
 
-            all_mpjpe *= 100
+            all_mpjpe *= 1000
             all_vim *= 100
             all_mpjpe /= count
             all_vim /= count
             with open(os.path.join(self.log_dir + self.model_dir, 'log.txt'), 'a+') as log:
                 log.write('Test MPJPE:\t avg: {:.2f} | 100ms: {:.2f} | 240ms: {:.2f} | 500ms: {:.2f} | 640ms: {:.2f} | 900ms: {:.2f}\n'.format(all_mpjpe.mean(), all_mpjpe[0],  all_mpjpe[1],  all_mpjpe[2],  all_mpjpe[3],  all_mpjpe[4]))
                 log.write('Test VIM:\t avg: {:.2f} | 100ms: {:.2f} | 240ms: {:.2f} | 500ms: {:.2f} | 640ms: {:.2f} | 900ms: {:.2f}\n'.format(all_vim.mean(), all_vim[0],  all_vim[1],  all_vim[2],  all_vim[3],  all_vim[4]))    
-        return all_vim.mean()
+        
+        print(all_mpjpe)
+        return all_mpjpe.mean()
     
     def train(self):
         start_time = time.time()
         steps = 0
         losses = []
         start_epoch = 0
-        self.best_eval=100
+        self.best_eval=np.inf
         self.expt_dir = 'output/'
 
         if self.pretrain_path != '':
             checkpoint = torch.load(self.pretrain_path)  
             self.model.load_state_dict(checkpoint['net']) 
 
+        from torchinfo import summary
+        summary(self.model, input_size=(
+            (1, args.N*args.J, args.input_length, 6), 
+            (1, args.N*args.J, args.N*args.J, args.input_length+2))
+        )
+
         for train_iter in range(start_epoch, self.num_epoch):
-            print("Epoch:", train_iter)
+            print("\nEpoch:", train_iter)
             print("Time since start:", (time.time() - start_time) / 60.0, "minutes.")
             self.model.train()
             self.epoch = train_iter
@@ -249,6 +260,10 @@ class Trainer:
                 losses.append([loss.item()])
                
                 steps += 1
+
+                if steps % 100 == 1:
+                    print(steps, loss)
+               
             self.scheduler_model.step()
 
             print("Loss", np.array(losses).mean())
@@ -261,6 +276,7 @@ class Trainer:
                 log.write('Epoch: {}, Train Loss: {},\n'.format(train_iter, np.array(losses).mean()))
                
             eval = self.eval()
+            print("Eval Loss:", eval)
 
             if eval < self.best_eval:
                 self.best_eval = eval

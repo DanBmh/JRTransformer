@@ -21,14 +21,12 @@ config = {
     # "item_step": 1,
     # "window_step": 1,
     "select_joints": [
-        # "hip_middle",
         "hip_right",
         "hip_left",
         "knee_right",
         "knee_left",
         "ankle_right",
         "ankle_left",
-        # "shoulder_middle",
         "nose",
         "shoulder_right",
         "shoulder_left",
@@ -39,33 +37,11 @@ config = {
     ],
 }
 
-# datasets_train = [
-#     "/datasets/preprocessed/mocap/train_forecast_samples_4fps.json",
-#     "/datasets/preprocessed/amass/bmlmovi_train_forecast_samples_4fps.json",
-#     "/datasets/preprocessed/amass/bmlrub_train_forecast_samples_4fps.json",
-#     "/datasets/preprocessed/amass/kit_train_forecast_samples_4fps.json"
-# ]
-
 datasets_train = [
-    "/datasets/preprocessed/human36m/train_forecast_kppspose.json",
-    # "/datasets/preprocessed/human36m/train_forecast_kppspose_10fps.json",
-    # "/datasets/preprocessed/human36m/train_forecast_kppspose_4fps.json",
-    # "/datasets/preprocessed/mocap/train_forecast_samples.json",
+    "/datasets/preprocessed/human36m/train_forecast_rpt.json",
 ]
 
-# datasets_train = [
-#     "/datasets/preprocessed/mocap/train_forecast_samples_10fps.json",
-#     "/datasets/preprocessed/amass/bmlmovi_train_forecast_samples_10fps.json",
-#     "/datasets/preprocessed/amass/bmlrub_train_forecast_samples_10fps.json",
-#     "/datasets/preprocessed/amass/kit_train_forecast_samples_10fps.json"
-# ]
-
-dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_kppspose.json"
-# dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_kppspose_10fps.json"
-# dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_kppspose_4fps.json"
-# dataset_eval_test = "/datasets/preprocessed/mocap/{}_forecast_samples.json"
-# dataset_eval_test = "/datasets/preprocessed/mocap/{}_forecast_samples_10fps.json"
-# dataset_eval_test = "/datasets/preprocessed/mocap/{}_forecast_samples_4fps.json"
+dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_rpt.json"
 
 # ==================================================================================================
 
@@ -74,8 +50,9 @@ class SkeldaDataset(Dataset):
     def __init__(self, dset_path, seq_len, N, J, split_name="train"):
         self.seq_len = seq_len
 
-        config["input_n"] = seq_len // 2
-        config["output_n"] = seq_len - (seq_len // 2)
+        config["input_n"] = seq_len // 3 * 2
+        config["output_n"] = seq_len // 3
+        print(config)
 
         # Load preprocessed datasets
         print("Loading datasets ...")
@@ -132,15 +109,11 @@ class SkeldaDataset(Dataset):
                 batch, "target", datamode, make_relative=False
             )
 
-            # Convert to meters
-            sequences_train = sequences_train / 1000.0
-            sequences_gt = sequences_gt / 1000.0
-
             # Switch y and z axes
             sequences_train = sequences_train[:, :, :, [0, 2, 1]]
             sequences_gt = sequences_gt[:, :, :, [0, 2, 1]]
 
-            # Reshape to [nbatch, npersons, nframes, njoints * 3]
+            # Reshape to [nbatch, npersons, nframes, njoints, 3]
             sequences_train = sequences_train.reshape(
                 [nbatch, 1, sequences_train.shape[1], J, 3]
             )

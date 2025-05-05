@@ -183,7 +183,7 @@ class JRTransformer(nn.Module):
 		self.joint_encoder = MLP(in_joint_size, feat_size, (256, 256))
 		self.relation_encoder = MLP(in_relation_size, feat_size, (256, 256))
 		self.pe = PositionalEmbedding(N, J, feat_size)
-		self.norm_layer = norm_layer(feat_size)
+		self.norm_layer = norm_layer(feat_size)  # unused
 
 		self.attn_encoder = nn.ModuleList([
 			Block(feat_size, num_heads, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)

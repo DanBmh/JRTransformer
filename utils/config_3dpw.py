@@ -30,6 +30,7 @@ pretrain_step_size = 10
 pretrain_gamma = 0.8
 #finetune
 batch_size = 128
+# batch_size = 1
 learning_rate = 1e-4
 num_epoch = 100
 step_size = 10
@@ -38,7 +39,7 @@ gamma = 0.8
 cuda_devices = '0'
 pretrain_path = ''
 # model_path = 'output/best_3dpw.pt'
-model_path = 'output/h_128_d_4_nh_8_06211228/best.pt'
+model_path = 'output/h_128_d_4_nh_8_05160803/best.pt'
 weight_loss_pred = 10.0
 weight_loss_recon = 1.0
 weight_loss_aux = 1.0
@@ -172,7 +173,8 @@ def parse_args():
                         help='number of frames that we have to skip')
     parser.add_argument('--rc',
                         type=bool,
-                        default=True,
+                        # default=True,
+                        default=False,
                         help='whether to remove camera movement')
     parser.add_argument('--input_length', 
                         type=int, 

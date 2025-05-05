@@ -14,7 +14,7 @@ from utils.util import get_adj, get_connect
 
 from datetime import datetime
 
-
+# Comment this out for a non-skelda test
 from dataset.dataset_skelda import SkeldaDataset
 SoMoFDataset_3dpw_test = SkeldaDataset
 
