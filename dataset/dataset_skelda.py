@@ -39,9 +39,11 @@ config = {
 
 datasets_train = [
     "/datasets/preprocessed/human36m/train_forecast_rpt.json",
+    # "/datasets/preprocessed/cmu-mocap/train.json",
 ]
 
 dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_rpt.json"
+# dataset_eval_test = "/datasets/preprocessed/cmu-mocap/{}.json"
 
 # ==================================================================================================
 
@@ -142,7 +144,10 @@ class SkeldaDataset(Dataset):
             self.data.append(data)
             self.data_para.append(curr_data_para)
 
-            if split_name == "train":
+            if split_name == "train" and not "mocap" in datasets_train[0]:
+                # the mocap dataset is too large and those additional items result in out-of-memory errors
+                # in the original amass code, those augmentations are missing as well
+
                 # rotate
                 rotate_data = rotate_Y(temp_, 120)
                 rotate_data, rotate_data_para = normalize(rotate_data)

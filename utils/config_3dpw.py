@@ -18,6 +18,10 @@ strike = 2
 
 input_length = 50
 output_length = 25
+# input_length = 60
+# output_length = 30
+# input_length = 180
+# output_length = 90
 num_joint = 13
 num_person = 1
 
@@ -29,7 +33,7 @@ pretrain_num_epoch = 100
 pretrain_step_size = 10
 pretrain_gamma = 0.8
 #finetune
-batch_size = 128
+batch_size = 64
 # batch_size = 1
 learning_rate = 1e-4
 num_epoch = 100
